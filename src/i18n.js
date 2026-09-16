@@ -2,7 +2,7 @@ export const SUPPORTED_LOCALES = ["zh-CN", "zh-TW", "en", "ja", "es"];
 
 const messages = {
   "zh-CN": {
-    "meta.title": "在线节拍器",
+    "meta.title": "Metronome_web",
     "meta.description": "适合乐器日常练习的在线节拍器。",
     "language.label": "语言",
     "theme.toDark": "切换到深色模式",
@@ -84,7 +84,7 @@ const messages = {
     "audio.documentTitle": "{bpm} BPM，{mark}",
   },
   "zh-TW": {
-    "meta.title": "線上節拍器",
+    "meta.title": "Metronome_web",
     "meta.description": "適合樂器日常練習的線上節拍器。",
     "language.label": "語言",
     "theme.toDark": "切換至深色模式",
@@ -166,7 +166,7 @@ const messages = {
     "audio.documentTitle": "{bpm} BPM，{mark}",
   },
   en: {
-    "meta.title": "Online Metronome",
+    "meta.title": "Metronome_web",
     "meta.description": "A focused online metronome for instrument practice.",
     "language.label": "Language",
     "theme.toDark": "Switch to dark mode",
@@ -248,7 +248,7 @@ const messages = {
     "audio.documentTitle": "{bpm} BPM, {mark}",
   },
   ja: {
-    "meta.title": "オンラインメトロノーム",
+    "meta.title": "Metronome_web",
     "meta.description": "楽器の日々の練習に適した、集中できるオンラインメトロノーム。",
     "language.label": "言語",
     "theme.toDark": "ダークモードに切り替える",
@@ -330,7 +330,7 @@ const messages = {
     "audio.documentTitle": "{bpm} BPM、{mark}",
   },
   es: {
-    "meta.title": "Metrónomo en línea",
+    "meta.title": "Metronome_web",
     "meta.description": "Un metrónomo en línea enfocado en la práctica diaria de instrumentos.",
     "language.label": "Idioma",
     "theme.toDark": "Cambiar al modo oscuro",
