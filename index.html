@@ -68,9 +68,11 @@
             </svg>
             <span class="sr-only" data-i18n="language.label">语言</span>
             <select id="languageSelect" aria-label="语言">
-              <option value="zh-CN">简中</option>
-              <option value="zh-TW">繁中</option>
-              <option value="en">EN</option>
+              <option value="zh-CN">简体中文</option>
+              <option value="zh-TW">繁體中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+              <option value="es">Español</option>
             </select>
           </label>
         </div>
@@ -107,7 +109,10 @@
                 />
                 <span>BPM</span>
               </span>
-              <span class="tempo-mark" id="tempoMark">Allegro</span>
+              <span class="tempo-mark-readout">
+                <span class="tempo-mark" id="tempoMark">小快板</span>
+                <small class="tempo-mark-meaning" id="tempoMarkMeaning">轻快，但比快板稍慢</small>
+              </span>
             </label>
 
             <button
@@ -139,6 +144,16 @@
             <span>80</span>
             <span>160</span>
             <span>240</span>
+          </div>
+
+          <div class="tempo-marking-section">
+            <span class="tempo-markings-label" data-i18n="tempo.markings.group">速度标记</span>
+            <div
+              class="tempo-markings"
+              id="tempoMarkingOptions"
+              role="radiogroup"
+              aria-label="选择速度标记"
+            ></div>
           </div>
 
           <div
@@ -194,6 +209,11 @@
               data-i18n-aria-label="subdivision.group"
               aria-label="选择每拍细分节奏"
             ></div>
+          </div>
+
+          <div class="setting-row">
+            <span class="setting-label" data-i18n="tone.label">音色</span>
+            <span class="tone-value" data-i18n="tone.wood">木质机械音色</span>
           </div>
 
           <div class="setting-row accent-row">

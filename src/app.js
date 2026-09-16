@@ -8,6 +8,7 @@ import {
   METERS,
   STORAGE_KEYS,
   SUBDIVISIONS,
+  TEMPO_MARKINGS,
   getTempoMarking,
 } from "./config.js";
 import { MetronomeAudio } from "./audio-engine.js";
@@ -30,6 +31,8 @@ const elements = {
   bpmInput: document.querySelector("#bpmInput"),
   tempoRange: document.querySelector("#tempoRange"),
   tempoMark: document.querySelector("#tempoMark"),
+  tempoMarkMeaning: document.querySelector("#tempoMarkMeaning"),
+  tempoMarkingOptions: document.querySelector("#tempoMarkingOptions"),
   decreaseTempo: document.querySelector("#decreaseTempo"),
   increaseTempo: document.querySelector("#increaseTempo"),
   presetRow: document.querySelector("#presetRow"),
@@ -50,6 +53,7 @@ const elements = {
 
 const i18n = createI18n(readStorage(STORAGE_KEYS.language));
 let wakeRuntimeState = "idle";
+let activeTempoMarkingId = null;
 
 const state = {
   bpm: DEFAULT_BPM,
@@ -82,6 +86,14 @@ function audioSnapshot() {
   };
 }
 
+function tempoMarkingName(marking) {
+  return i18n.t(`tempo.markings.${marking.id}.name`);
+}
+
+function tempoMarkingMeaning(marking) {
+  return i18n.t(`tempo.markings.${marking.id}.meaning`);
+}
+
 const audio = new MetronomeAudio(triggerVisualBeat);
 const wakeLock = new ScreenWakeLock((nextState) => {
   wakeRuntimeState = nextState;
@@ -102,7 +114,7 @@ function updateDocumentTitle() {
 
   document.title = i18n.t("audio.documentTitle", {
     bpm: state.bpm,
-    mark: getTempoMarking(state.bpm),
+    mark: tempoMarkingName(getTempoMarking(state.bpm)),
   });
 }
 
@@ -151,11 +163,32 @@ function updateWakeLockUI() {
 
 function updateTempoUI() {
   const marking = getTempoMarking(state.bpm);
+  const markingName = tempoMarkingName(marking);
+  const markingMeaning = tempoMarkingMeaning(marking);
+
   elements.bpmInput.value = String(state.bpm);
   elements.tempoRange.value = String(state.bpm);
-  elements.tempoRange.setAttribute("aria-valuetext", `${state.bpm} BPM · ${marking}`);
-  elements.tempoMark.textContent = marking;
-  elements.tempoMark.setAttribute("aria-label", i18n.t("tempo.markAria", { mark: marking }));
+  elements.tempoRange.setAttribute(
+    "aria-valuetext",
+    `${state.bpm} BPM · ${markingName}`
+  );
+  elements.tempoMark.textContent = markingName;
+  elements.tempoMark.setAttribute(
+    "aria-label",
+    i18n.t("tempo.markAria", {
+      name: markingName,
+      min: marking.min,
+      max: marking.max,
+    })
+  );
+  elements.tempoMarkMeaning.textContent = markingMeaning;
+  elements.tempoMarkMeaning.setAttribute(
+    "title",
+    i18n.t("tempo.markingMeaningAria", {
+      name: markingName,
+      meaning: markingMeaning,
+    })
+  );
 
   elements.presetRow.querySelectorAll("[data-bpm]").forEach((button) => {
     const active = Number(button.dataset.bpm) === state.bpm;
@@ -166,6 +199,7 @@ function updateTempoUI() {
     );
   });
 
+  updateTempoMarkingSelection(marking);
   if (state.isPlaying) {
     elements.audioState.textContent = i18n.t("audio.playing", { bpm: state.bpm });
   }
@@ -212,6 +246,80 @@ function updatePlaybackUI() {
   }
 
   updateDocumentTitle();
+}
+
+function renderTempoMarkings() {
+  elements.tempoMarkingOptions.replaceChildren();
+
+  TEMPO_MARKINGS.forEach((marking) => {
+    const button = document.createElement("button");
+    const name = document.createElement("span");
+    const range = document.createElement("small");
+    const markingName = tempoMarkingName(marking);
+    const markingMeaning = tempoMarkingMeaning(marking);
+
+    button.type = "button";
+    button.dataset.tempoMarking = marking.id;
+    button.setAttribute("role", "radio");
+    button.setAttribute("aria-checked", "false");
+    button.setAttribute(
+      "aria-label",
+      i18n.t("tempo.markingSelectAria", {
+        name: markingName,
+        recommended: marking.recommendedBpm,
+      })
+    );
+    button.setAttribute(
+      "title",
+      i18n.t("tempo.markingMeaningAria", {
+        name: markingName,
+        meaning: markingMeaning,
+      })
+    );
+
+    name.className = "tempo-marking-name";
+    name.textContent = markingName;
+    range.className = "tempo-marking-range";
+    range.textContent = i18n.t("tempo.markingRange", {
+      min: marking.min,
+      max: marking.max,
+    });
+
+    button.append(name, range);
+    button.addEventListener("click", () => selectTempoMarking(marking.id));
+    elements.tempoMarkingOptions.append(button);
+  });
+}
+
+function updateTempoMarkingSelection(marking) {
+  const activeButton = elements.tempoMarkingOptions.querySelector(
+    `[data-tempo-marking="${marking.id}"]`
+  );
+
+  elements.tempoMarkingOptions
+    .querySelectorAll("[data-tempo-marking]")
+    .forEach((button) => {
+      const isActive = button === activeButton;
+      button.setAttribute("aria-checked", String(isActive));
+    });
+
+  if (activeButton && activeTempoMarkingId !== marking.id) {
+    activeTempoMarkingId = marking.id;
+    activeButton.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+      block: "nearest",
+      inline: "center",
+    });
+  }
+}
+
+function selectTempoMarking(markingId) {
+  const marking = TEMPO_MARKINGS.find((item) => item.id === markingId);
+  if (!marking) return;
+
+  setBpm(marking.recommendedBpm);
 }
 
 function renderPresets() {
@@ -359,8 +467,13 @@ function applyTranslations() {
     .querySelector('meta[name="description"]')
     ?.setAttribute("content", i18n.t("meta.description"));
   elements.languageSelect.setAttribute("aria-label", i18n.t("language.label"));
+  elements.tempoMarkingOptions.setAttribute(
+    "aria-label",
+    i18n.t("tempo.markings.groupAria")
+  );
 
   applyStaticTranslations();
+  renderTempoMarkings();
   renderPresets();
   renderMeters();
   renderSubdivisions();

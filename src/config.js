@@ -14,18 +14,22 @@ export const METERS = [
 
 export const SUBDIVISIONS = [1, 2, 4, 3];
 
+// Intervals are normalized to be contiguous so the active marking is deterministic
+// across the full slider range. Recommended BPMs are the center of each interval.
 export const TEMPO_MARKINGS = [
-  { min: 1, max: 19, name: "Larghissimo" },
-  { min: 20, max: 39, name: "Grave" },
-  { min: 40, max: 49, name: "Largo" },
-  { min: 50, max: 54, name: "Lento" },
-  { min: 55, max: 65, name: "Adagio" },
-  { min: 66, max: 75, name: "Andante" },
-  { min: 76, max: 107, name: "Moderato" },
-  { min: 108, max: 119, name: "Allegretto" },
-  { min: 120, max: 167, name: "Allegro" },
-  { min: 168, max: 199, name: "Presto" },
-  { min: 200, max: BPM_MAX, name: "Prestissimo" },
+  { id: "larghissimo", name: "Larghissimo", min: 1, max: 19, recommendedBpm: 10 },
+  { id: "grave", name: "Grave", min: 20, max: 39, recommendedBpm: 30 },
+  { id: "largo", name: "Largo", min: 40, max: 59, recommendedBpm: 50 },
+  { id: "larghetto", name: "Larghetto", min: 60, max: 65, recommendedBpm: 63 },
+  { id: "adagio", name: "Adagio", min: 66, max: 75, recommendedBpm: 71 },
+  { id: "andante", name: "Andante", min: 76, max: 95, recommendedBpm: 86 },
+  { id: "andantino", name: "Andantino", min: 96, max: 107, recommendedBpm: 102 },
+  { id: "moderato", name: "Moderato", min: 108, max: 119, recommendedBpm: 114 },
+  { id: "allegretto", name: "Allegretto", min: 120, max: 135, recommendedBpm: 128 },
+  { id: "allegro", name: "Allegro", min: 136, max: 159, recommendedBpm: 148 },
+  { id: "vivace", name: "Vivace", min: 160, max: 175, recommendedBpm: 168 },
+  { id: "presto", name: "Presto", min: 176, max: 199, recommendedBpm: 188 },
+  { id: "prestissimo", name: "Prestissimo", min: 200, max: BPM_MAX, recommendedBpm: 220 },
 ];
 
 export const STORAGE_KEYS = {
@@ -41,7 +45,11 @@ export const STORAGE_KEYS = {
 
 export function getTempoMarking(bpm) {
   return (
-    TEMPO_MARKINGS.find((marking) => bpm >= marking.min && bpm <= marking.max)?.name ??
-    TEMPO_MARKINGS[0].name
+    TEMPO_MARKINGS.find((marking) => bpm >= marking.min && bpm <= marking.max) ??
+    TEMPO_MARKINGS[0]
   );
+}
+
+export function getTempoMarkingById(id) {
+  return TEMPO_MARKINGS.find((marking) => marking.id === id);
 }

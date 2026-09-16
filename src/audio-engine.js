@@ -1,5 +1,12 @@
 const LOOKAHEAD_MS = 25;
 const SCHEDULE_AHEAD_SECONDS = 0.1;
+const CLICK_ATTACK_SECONDS = 0.001;
+const CLICK_DECAY_SECONDS = 0.028;
+const ACCENT_FREQUENCY = 1200;
+const NORMAL_FREQUENCY = 800;
+const ACCENT_GAIN = 0.72;
+const NORMAL_GAIN = 0.42;
+const SILENCE_GAIN = 0.0001;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -44,8 +51,12 @@ export class MetronomeAudio {
     return volume * volume;
   }
 
-  async start(config) {
+  async init() {
     await this.ensureContext();
+  }
+
+  async start(config) {
+    await this.init();
 
     this.config = { ...config };
     this.isPlaying = true;
@@ -103,58 +114,40 @@ export class MetronomeAudio {
     return this.context?.state ?? "closed";
   }
 
-  createDong(time, { accent = false, subdivision = false } = {}) {
-    const volume = this.config?.volume ?? 0;
+  playClick(isAccent, time) {
+    const volume = this.config?.volume ?? 1;
     if (volume === 0 || !this.context || !this.masterGain) return;
 
-    const startTime = Math.max(time, this.context.currentTime);
-    const duration = subdivision ? 0.12 : accent ? 0.22 : 0.18;
-    const endTime = startTime + duration;
-    const baseFrequency = accent ? 178 : subdivision ? 126 : 146;
-    const endFrequency = accent ? 92 : subdivision ? 72 : 82;
-    const targetGain = accent ? 0.72 : subdivision ? 0.2 : 0.42;
+    const startedAt = Number.isFinite(time) ? time : this.context.currentTime;
+    const startTime = Math.max(startedAt, this.context.currentTime);
+    const decayStartedAt = startTime + CLICK_ATTACK_SECONDS;
+    const endTime = decayStartedAt + CLICK_DECAY_SECONDS;
+    const oscillator = this.context.createOscillator();
+    const envelope = this.context.createGain();
 
-    const body = this.context.createOscillator();
-    const sub = this.context.createOscillator();
-    const bodyGain = this.context.createGain();
-    const subGain = this.context.createGain();
-    const filter = this.context.createBiquadFilter();
+    oscillator.type = "triangle";
+    oscillator.frequency.setValueAtTime(
+      isAccent ? ACCENT_FREQUENCY : NORMAL_FREQUENCY,
+      startTime
+    );
 
-    body.type = "sine";
-    body.frequency.setValueAtTime(baseFrequency, startTime);
-    body.frequency.exponentialRampToValueAtTime(endFrequency, endTime);
+    envelope.gain.setValueAtTime(0, startTime);
+    envelope.gain.linearRampToValueAtTime(
+      isAccent ? ACCENT_GAIN : NORMAL_GAIN,
+      decayStartedAt
+    );
+    envelope.gain.exponentialRampToValueAtTime(SILENCE_GAIN, endTime);
 
-    sub.type = "triangle";
-    sub.frequency.setValueAtTime(baseFrequency * 0.5, startTime);
-    sub.frequency.exponentialRampToValueAtTime(endFrequency * 0.5, endTime);
+    oscillator.connect(envelope);
+    envelope.connect(this.masterGain);
+    oscillator.start(startTime);
+    oscillator.stop(endTime + 0.001);
 
-    bodyGain.gain.setValueAtTime(0.0001, startTime);
-    bodyGain.gain.exponentialRampToValueAtTime(targetGain, startTime + 0.006);
-    bodyGain.gain.exponentialRampToValueAtTime(0.0001, endTime);
-
-    subGain.gain.setValueAtTime(0.0001, startTime);
-    subGain.gain.exponentialRampToValueAtTime(targetGain * 0.13, startTime + 0.004);
-    subGain.gain.exponentialRampToValueAtTime(0.0001, endTime * 0.9);
-
-    filter.type = "lowpass";
-    filter.frequency.setValueAtTime(accent ? 820 : 680, startTime);
-    filter.frequency.exponentialRampToValueAtTime(360, endTime);
-    filter.Q.value = 0.6;
-
-    body.connect(bodyGain);
-    sub.connect(subGain);
-    bodyGain.connect(filter);
-    subGain.connect(filter);
-    filter.connect(this.masterGain);
-
-    body.start(startTime);
-    sub.start(startTime);
-    body.stop(endTime + 0.03);
-    sub.stop(endTime + 0.03);
-
-    const voice = { oscillators: [body, sub], endTime };
+    const voice = { oscillators: [oscillator], endTime };
     this.scheduledVoices.add(voice);
-    body.addEventListener("ended", () => this.scheduledVoices.delete(voice), { once: true });
+    oscillator.addEventListener("ended", () => this.scheduledVoices.delete(voice), {
+      once: true,
+    });
   }
 
   scheduleVisualBeat(beatIndex, accent, time, generation) {
@@ -181,10 +174,7 @@ export class MetronomeAudio {
       const isMainBeat = this.subIndex === 0;
       const accent = isMainBeat && accentFirstBeat && this.beatIndex === 0;
 
-      this.createDong(this.nextNoteTime, {
-        accent,
-        subdivision: !isMainBeat,
-      });
+      this.playClick(accent, this.nextNoteTime);
 
       if (isMainBeat) {
         this.scheduleVisualBeat(this.beatIndex, accent, this.nextNoteTime, generation);
