@@ -82,6 +82,7 @@ export class MetronomeAudio {
   }
 
   update(config, { reschedule = true } = {}) {
+    const previousConfig = this.config;
     this.config = { ...config };
 
     if (this.masterGain && this.context) {
@@ -89,7 +90,7 @@ export class MetronomeAudio {
     }
 
     if (this.isPlaying && reschedule) {
-      this.resync();
+      this.resync(previousConfig);
     }
   }
 
@@ -143,7 +144,7 @@ export class MetronomeAudio {
     oscillator.start(startTime);
     oscillator.stop(endTime + 0.001);
 
-    const voice = { oscillators: [oscillator], endTime };
+    const voice = { oscillators: [oscillator], envelope, endTime };
     this.scheduledVoices.add(voice);
     oscillator.addEventListener("ended", () => this.scheduledVoices.delete(voice), {
       once: true,
@@ -164,14 +165,17 @@ export class MetronomeAudio {
   scheduler(generation) {
     if (!this.isPlaying || generation !== this.generation || !this.context || !this.config) return;
 
-    const { bpm, beats, subdivision, accentFirstBeat } = this.config;
-    if (bpm < 1) {
+    const { bpm, beats, subdivisionOffsets, accentFirstBeat } = this.config;
+    if (bpm < 1 || !subdivisionOffsets?.length) {
       this.stop();
       return;
     }
 
+    const beatDuration = 60 / bpm;
+
     while (this.nextNoteTime < this.context.currentTime + SCHEDULE_AHEAD_SECONDS) {
-      const isMainBeat = this.subIndex === 0;
+      const offset = subdivisionOffsets[this.subIndex] ?? 0;
+      const isMainBeat = offset === 0;
       const accent = isMainBeat && accentFirstBeat && this.beatIndex === 0;
 
       this.playClick(accent, this.nextNoteTime);
@@ -180,10 +184,13 @@ export class MetronomeAudio {
         this.scheduleVisualBeat(this.beatIndex, accent, this.nextNoteTime, generation);
       }
 
-      this.nextNoteTime += 60 / bpm / subdivision;
-      this.subIndex += 1;
+      const nextSubIndex = this.subIndex + 1;
 
-      if (this.subIndex >= subdivision) {
+      if (nextSubIndex < subdivisionOffsets.length) {
+        this.nextNoteTime += (subdivisionOffsets[nextSubIndex] - offset) * beatDuration;
+        this.subIndex = nextSubIndex;
+      } else {
+        this.nextNoteTime += (1 - offset) * beatDuration;
         this.subIndex = 0;
         this.beatIndex = (this.beatIndex + 1) % beats;
       }
@@ -200,12 +207,27 @@ export class MetronomeAudio {
   stopScheduledVoices() {
     if (!this.context) return;
 
-    this.scheduledVoices.forEach(({ oscillators, endTime }) => {
-      if (endTime <= this.context.currentTime) return;
+    const now = this.context.currentTime;
+
+    this.scheduledVoices.forEach(({ oscillators, envelope, endTime }) => {
+      if (endTime <= now) return;
+
+      if (envelope) {
+        try {
+          envelope.gain.cancelScheduledValues(now);
+          envelope.gain.setValueAtTime(
+            Math.max(envelope.gain.value, SILENCE_GAIN),
+            now
+          );
+          envelope.gain.exponentialRampToValueAtTime(SILENCE_GAIN, now + 0.006);
+        } catch {
+          // The voice has already finished its original schedule.
+        }
+      }
 
       oscillators.forEach((oscillator) => {
         try {
-          oscillator.stop(this.context.currentTime);
+          oscillator.stop(now + 0.007);
         } catch {
           // A voice can already be stopped by its original schedule.
         }
@@ -214,7 +236,7 @@ export class MetronomeAudio {
     this.scheduledVoices.clear();
   }
 
-  resync() {
+  resync(previousConfig) {
     if (!this.isPlaying || !this.context) return;
 
     this.generation += 1;
@@ -226,9 +248,37 @@ export class MetronomeAudio {
     }
 
     this.stopScheduledVoices();
-    this.beatIndex = 0;
-    this.subIndex = 0;
-    this.nextNoteTime = this.context.currentTime + 0.06;
+
+    const subdivisionChanged =
+      Boolean(previousConfig) &&
+      previousConfig.subdivisionOffsets?.join(",") !==
+        this.config?.subdivisionOffsets?.join(",");
+    const beatCountChanged = !previousConfig || previousConfig.beats !== this.config?.beats;
+
+    if (subdivisionChanged) {
+      this.nextNoteTime = this.nextMainBeatTime(previousConfig);
+      this.subIndex = 0;
+    } else {
+      this.nextNoteTime = this.context.currentTime + 0.06;
+      this.subIndex = 0;
+    }
+
+    if (beatCountChanged) {
+      this.beatIndex = 0;
+    }
+
     this.scheduler(this.generation);
+  }
+
+  nextMainBeatTime(previousConfig) {
+    const offsets = previousConfig?.subdivisionOffsets;
+    const beatDuration = previousConfig?.bpm ? 60 / previousConfig.bpm : 0;
+
+    if (!offsets?.length || this.subIndex === 0 || beatDuration <= 0) {
+      return this.nextNoteTime;
+    }
+
+    const currentOffset = offsets[this.subIndex] ?? offsets[offsets.length - 1] ?? 0;
+    return this.nextNoteTime + (1 - currentOffset) * beatDuration;
   }
 }

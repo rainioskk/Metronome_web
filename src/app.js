@@ -1,11 +1,13 @@
 import {
+  ACCENT_INTERVALS,
   BPM_MAX,
   BPM_MIN,
   DEFAULT_ACCENT_FIRST_BEAT,
+  DEFAULT_ACCENT_INTERVAL,
   DEFAULT_BPM,
+  DEFAULT_SUBDIVISION,
   DEFAULT_VOLUME,
   DEFAULT_WAKE_LOCK,
-  METERS,
   STORAGE_KEYS,
   SUBDIVISIONS,
   TEMPO_MARKINGS,
@@ -21,7 +23,62 @@ import {
   writeStorage,
 } from "./storage.js";
 
-const PRESETS = [60, 80, 100, 120, 160];
+// Older releases stored the subdivision as a numeric clicks-per-beat value.
+const LEGACY_SUBDIVISIONS = {
+  1: "quarter",
+  2: "eighth",
+  3: "triplet",
+  4: "sixteenth",
+};
+
+function noteMarkup(x, top = 6.2) {
+  return [
+    `<ellipse cx="${x}" cy="17.2" rx="2.25" ry="1.75" transform="rotate(-18 ${x} 17.2)" fill="currentColor" stroke="none"></ellipse>`,
+    `<path d="M${x + 1.8} 16.5V${top}" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"></path>`,
+  ].join("");
+}
+
+function beamMarkup(x1, x2, y, width = 1.45) {
+  return `<path d="M${x1 + 1.8} ${y}H${x2 + 1.8}" stroke="currentColor" stroke-width="${width}" stroke-linecap="round"></path>`;
+}
+
+const SUBDIVISION_ICON_MARKUP = {
+  quarter: noteMarkup(12),
+  eighth: [
+    noteMarkup(7, 5.6),
+    noteMarkup(18, 5.6),
+    beamMarkup(7, 18, 5.6),
+  ].join(""),
+  dottedEighth: [
+    noteMarkup(4, 5.6),
+    noteMarkup(18, 5.6),
+    beamMarkup(4, 18, 5.6),
+    '<circle cx="12.5" cy="16.9" r="1.15" fill="currentColor" stroke="none"></circle>',
+  ].join(""),
+  triplet: [
+    noteMarkup(3.5, 7.4),
+    noteMarkup(12, 7.4),
+    noteMarkup(20.5, 7.4),
+    beamMarkup(3.5, 20.5, 7.4, 1.25),
+    '<text x="12" y="4.8" text-anchor="middle" font-size="5.8" font-weight="800" fill="currentColor" stroke="none">3</text>',
+  ].join(""),
+  sixteenth: [
+    noteMarkup(3, 5.2),
+    noteMarkup(9, 5.2),
+    noteMarkup(15, 5.2),
+    noteMarkup(21, 5.2),
+    beamMarkup(3, 21, 5.2, 1.35),
+    beamMarkup(3, 21, 8.2, 1.35),
+  ].join(""),
+};
+
+function subdivisionIconMarkup(subdivision) {
+  const markup =
+    SUBDIVISION_ICON_MARKUP[subdivision.icon] ??
+    SUBDIVISION_ICON_MARKUP.quarter;
+
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${markup}</svg>`;
+}
 
 const elements = {
   languageSelect: document.querySelector("#languageSelect"),
@@ -35,16 +92,13 @@ const elements = {
   tempoMarkingOptions: document.querySelector("#tempoMarkingOptions"),
   decreaseTempo: document.querySelector("#decreaseTempo"),
   increaseTempo: document.querySelector("#increaseTempo"),
-  presetRow: document.querySelector("#presetRow"),
-  meterOptions: document.querySelector("#meterOptions"),
   subdivisionOptions: document.querySelector("#subdivisionOptions"),
   accentToggle: document.querySelector("#accentToggle"),
-  beatDisplay: document.querySelector("#beatDisplay"),
+  accentIntervalValue: document.querySelector("#accentIntervalValue"),
+  decreaseAccentInterval: document.querySelector("#decreaseAccentInterval"),
+  increaseAccentInterval: document.querySelector("#increaseAccentInterval"),
   audioState: document.querySelector("#audioState"),
-  beatNumber: document.querySelector("#beatNumber"),
-  beatTotal: document.querySelector("#beatTotal"),
-  beatDots: document.querySelector("#beatDots"),
-  tapTempo: document.querySelector("#tapTempo"),
+  beatLamp: document.querySelector("#beatLamp"),
   playButton: document.querySelector("#playButton"),
   playText: document.querySelector("#playText"),
   volumeRange: document.querySelector("#volumeRange"),
@@ -54,17 +108,16 @@ const elements = {
 const i18n = createI18n(readStorage(STORAGE_KEYS.language));
 let wakeRuntimeState = "idle";
 let activeTempoMarkingId = null;
+let beatFlashTimer = 0;
 
 const state = {
   bpm: DEFAULT_BPM,
-  meterId: "4/4",
-  subdivision: 1,
+  subdivisionId: DEFAULT_SUBDIVISION,
   accentFirstBeat: DEFAULT_ACCENT_FIRST_BEAT,
+  accentInterval: DEFAULT_ACCENT_INTERVAL,
   wakeLockEnabled: DEFAULT_WAKE_LOCK,
   volume: DEFAULT_VOLUME / 100,
   isPlaying: false,
-  taps: [],
-  lastTapAt: 0,
   theme: "light",
 };
 
@@ -72,15 +125,18 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function currentMeter() {
-  return METERS.find((meter) => meter.id === state.meterId) ?? METERS[2];
+function currentSubdivision() {
+  return (
+    SUBDIVISIONS.find((subdivision) => subdivision.id === state.subdivisionId) ??
+    SUBDIVISIONS[0]
+  );
 }
 
 function audioSnapshot() {
   return {
     bpm: state.bpm,
-    beats: currentMeter().beats,
-    subdivision: state.subdivision,
+    beats: state.accentInterval,
+    subdivisionOffsets: currentSubdivision().offsets,
     accentFirstBeat: state.accentFirstBeat,
     volume: state.volume,
   };
@@ -190,15 +246,6 @@ function updateTempoUI() {
     })
   );
 
-  elements.presetRow.querySelectorAll("[data-bpm]").forEach((button) => {
-    const active = Number(button.dataset.bpm) === state.bpm;
-    button.setAttribute("aria-pressed", String(active));
-    button.setAttribute(
-      "aria-label",
-      i18n.t("tempo.presetAria", { bpm: button.dataset.bpm })
-    );
-  });
-
   updateTempoMarkingSelection(marking);
   if (state.isPlaying) {
     elements.audioState.textContent = i18n.t("audio.playing", { bpm: state.bpm });
@@ -236,7 +283,7 @@ function updatePlaybackUI() {
   elements.playText.textContent = state.isPlaying
     ? i18n.t("playback.pause")
     : i18n.t("playback.start");
-  elements.beatDisplay.classList.toggle("is-playing", state.isPlaying);
+  elements.beatLamp.dataset.state = state.isPlaying ? "playing" : "idle";
 
   if (state.isPlaying) {
     elements.audioState.textContent = i18n.t("audio.playing", { bpm: state.bpm });
@@ -322,113 +369,100 @@ function selectTempoMarking(markingId) {
   setBpm(marking.recommendedBpm);
 }
 
-function renderPresets() {
-  elements.presetRow.replaceChildren();
-
-  PRESETS.forEach((bpm) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.bpm = String(bpm);
-    button.textContent = String(bpm);
-    button.setAttribute("aria-label", i18n.t("tempo.presetAria", { bpm }));
-    button.addEventListener("click", () => setBpm(bpm));
-    elements.presetRow.append(button);
-  });
-}
-
-function renderMeters() {
-  elements.meterOptions.replaceChildren();
-
-  METERS.forEach((meter) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.meterId = meter.id;
-    button.textContent = meter.id;
-    button.setAttribute("role", "radio");
-    button.setAttribute("aria-checked", String(meter.id === state.meterId));
-    button.setAttribute("aria-label", i18n.t("meter.aria", { meter: meter.id }));
-    button.addEventListener("click", () => selectMeter(meter.id));
-    elements.meterOptions.append(button);
-  });
-}
-
 function renderSubdivisions() {
   elements.subdivisionOptions.replaceChildren();
 
   SUBDIVISIONS.forEach((subdivision) => {
     const button = document.createElement("button");
-    const count = document.createElement("strong");
+    const icon = document.createElement("span");
     const label = document.createElement("small");
+    const name = i18n.t(`subdivision.${subdivision.id}`);
 
     button.type = "button";
-    button.dataset.subdivision = String(subdivision);
+    button.dataset.subdivision = subdivision.id;
     button.setAttribute("role", "radio");
-    button.setAttribute("aria-checked", String(subdivision === state.subdivision));
-    button.setAttribute("aria-label", i18n.t(`subdivision.${subdivision}`));
+    button.setAttribute("aria-checked", String(subdivision.id === state.subdivisionId));
+    button.setAttribute("aria-label", name);
+    button.setAttribute("title", name);
 
-    count.textContent = String(subdivision);
-    label.textContent = i18n.t(`subdivision.${subdivision}`);
-    button.append(count, label);
+    icon.className = "subdivision-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = subdivisionIconMarkup(subdivision);
+    label.textContent = name;
+    button.append(icon, label);
     elements.subdivisionOptions.append(button);
   });
 }
 
-function renderBeatIndicators() {
-  elements.beatDots.replaceChildren();
-
-  for (let index = 0; index < currentMeter().beats; index += 1) {
-    const dot = document.createElement("span");
-    dot.dataset.beat = String(index);
-    dot.className = "beat-dot";
-    if (index === 0 && state.accentFirstBeat) dot.classList.add("is-accent");
-    elements.beatDots.append(dot);
+function selectSubdivision(subdivisionId) {
+  if (
+    !SUBDIVISIONS.some((subdivision) => subdivision.id === subdivisionId) ||
+    subdivisionId === state.subdivisionId
+  ) {
+    return;
   }
 
-  elements.beatTotal.textContent = String(currentMeter().beats);
-}
-
-function selectMeter(meterId) {
-  if (!METERS.some((meter) => meter.id === meterId) || meterId === state.meterId) return;
-
-  state.meterId = meterId;
-  renderMeters();
-  renderBeatIndicators();
-  writeStorage(STORAGE_KEYS.meter, meterId);
-
-  if (state.isPlaying) {
-    audio.update(audioSnapshot());
-    elements.beatNumber.textContent = "1";
-  }
-}
-
-function selectSubdivision(value) {
-  const subdivision = Number.parseInt(value, 10);
-  if (!SUBDIVISIONS.includes(subdivision) || subdivision === state.subdivision) return;
-
-  state.subdivision = subdivision;
+  state.subdivisionId = subdivisionId;
   renderSubdivisions();
-  writeStorage(STORAGE_KEYS.subdivision, subdivision);
+  writeStorage(STORAGE_KEYS.subdivision, subdivisionId);
 
   if (state.isPlaying) {
     audio.update(audioSnapshot());
-    elements.beatNumber.textContent = "1";
   }
 }
 
 function updateAccentUI() {
+  const minInterval = Math.min(...ACCENT_INTERVALS);
+  const maxInterval = Math.max(...ACCENT_INTERVALS);
+  const intervalLabel = i18n.t("accent.intervalAria", {
+    count: state.accentInterval,
+  });
+
   elements.accentToggle.setAttribute("aria-checked", String(state.accentFirstBeat));
   elements.accentToggle.dataset.enabled = String(state.accentFirstBeat);
+  elements.accentIntervalValue.textContent = String(state.accentInterval);
+  elements.accentIntervalValue.setAttribute("aria-label", intervalLabel);
+  elements.decreaseAccentInterval.disabled = state.accentInterval <= minInterval;
+  elements.increaseAccentInterval.disabled = state.accentInterval >= maxInterval;
 }
 
 function setAccentFirstBeat(enabled) {
   state.accentFirstBeat = Boolean(enabled);
   updateAccentUI();
-  renderBeatIndicators();
   writeStorage(STORAGE_KEYS.accentFirstBeat, state.accentFirstBeat);
 
   if (state.isPlaying) {
     audio.update(audioSnapshot(), { reschedule: false });
   }
+}
+
+function setAccentInterval(rawValue) {
+  const interval = Number.parseInt(rawValue, 10);
+  if (!ACCENT_INTERVALS.includes(interval) || interval === state.accentInterval) {
+    updateAccentUI();
+    return;
+  }
+
+  state.accentInterval = interval;
+  writeStorage(STORAGE_KEYS.accentInterval, interval);
+  updateAccentUI();
+
+  if (state.isPlaying) {
+    audio.update(audioSnapshot());
+  }
+}
+
+function adjustAccentInterval(delta) {
+  const currentIndex = ACCENT_INTERVALS.indexOf(state.accentInterval);
+  if (currentIndex === -1) return;
+
+  const nextIndex = clamp(
+    currentIndex + delta,
+    0,
+    ACCENT_INTERVALS.length - 1
+  );
+
+  setAccentInterval(ACCENT_INTERVALS[nextIndex]);
 }
 
 function setVolume(value, persist = true) {
@@ -474,10 +508,8 @@ function applyTranslations() {
 
   applyStaticTranslations();
   renderTempoMarkings();
-  renderPresets();
-  renderMeters();
   renderSubdivisions();
-  renderBeatIndicators();
+  updateAccentUI();
   updateTempoUI();
   updateThemeUI();
   updateWakeLockUI();
@@ -532,68 +564,42 @@ function toggleWakeLock() {
 }
 
 function clearCurrentBeat() {
-  document.querySelectorAll(".is-current").forEach((element) => {
-    element.classList.remove("is-current");
-  });
-  elements.beatDisplay.classList.remove("is-beating", "is-accent");
-  elements.beatNumber.textContent = "1";
+  window.clearTimeout(beatFlashTimer);
+  beatFlashTimer = 0;
+  elements.beatLamp.classList.remove("is-beating", "is-accent");
 }
 
-function triggerVisualBeat(beatIndex, accent) {
-  document.querySelectorAll(".is-current").forEach((element) => {
-    element.classList.remove("is-current");
-  });
+function triggerVisualBeat(_beatIndex, accent) {
+  const lamp = elements.beatLamp;
 
-  document.querySelector(`.beat-dot[data-beat="${beatIndex}"]`)?.classList.add("is-current");
-  elements.beatNumber.textContent = String(beatIndex + 1);
-  elements.beatDisplay.classList.toggle("is-accent", accent);
-  elements.beatDisplay.classList.remove("is-beating");
-  void elements.beatDisplay.offsetWidth;
-  elements.beatDisplay.classList.add("is-beating");
-  window.setTimeout(() => elements.beatDisplay.classList.remove("is-beating"), 110);
-}
-
-function registerTap() {
-  const now = performance.now();
-
-  if (state.lastTapAt && now - state.lastTapAt > 3000) {
-    state.taps = [];
-  }
-
-  state.lastTapAt = now;
-  state.taps.push(now);
-  state.taps = state.taps.slice(-6);
-  elements.tapTempo.classList.add("is-tapped");
-  window.setTimeout(() => elements.tapTempo.classList.remove("is-tapped"), 110);
-
-  if (state.taps.length < 2) return;
-
-  const intervals = state.taps
-    .slice(1)
-    .map((tap, index) => tap - state.taps[index])
-    .filter((interval) => interval >= 250 && interval <= 60000);
-
-  if (!intervals.length) {
-    state.taps = [now];
-    return;
-  }
-
-  const average = intervals.reduce((sum, interval) => sum + interval, 0) / intervals.length;
-  setBpm(Math.round(60000 / average));
+  window.clearTimeout(beatFlashTimer);
+  lamp.classList.remove("is-beating");
+  lamp.classList.toggle("is-accent", accent);
+  void lamp.offsetWidth;
+  lamp.classList.add("is-beating");
+  beatFlashTimer = window.setTimeout(() => lamp.classList.remove("is-beating"), 130);
 }
 
 function restoreSettings() {
   state.bpm = clamp(readNumber(STORAGE_KEYS.bpm, DEFAULT_BPM), BPM_MIN, BPM_MAX);
 
-  const savedMeter = readStorage(STORAGE_KEYS.meter);
-  state.meterId = METERS.some((meter) => meter.id === savedMeter) ? savedMeter : "4/4";
-
-  const savedSubdivision = readNumber(STORAGE_KEYS.subdivision, 1);
-  state.subdivision = SUBDIVISIONS.includes(savedSubdivision) ? savedSubdivision : 1;
+  const savedSubdivision = readStorage(STORAGE_KEYS.subdivision);
+  state.subdivisionId = SUBDIVISIONS.some(
+    (subdivision) => subdivision.id === savedSubdivision
+  )
+    ? savedSubdivision
+    : LEGACY_SUBDIVISIONS[savedSubdivision] ?? DEFAULT_SUBDIVISION;
   state.accentFirstBeat = readBoolean(
     STORAGE_KEYS.accentFirstBeat,
     DEFAULT_ACCENT_FIRST_BEAT
   );
+  const savedAccentInterval = readNumber(
+    STORAGE_KEYS.accentInterval,
+    DEFAULT_ACCENT_INTERVAL
+  );
+  state.accentInterval = ACCENT_INTERVALS.includes(savedAccentInterval)
+    ? savedAccentInterval
+    : DEFAULT_ACCENT_INTERVAL;
   state.wakeLockEnabled = readBoolean(STORAGE_KEYS.wakeLock, DEFAULT_WAKE_LOCK);
   state.volume = clamp(readNumber(STORAGE_KEYS.volume, DEFAULT_VOLUME), 0, 100) / 100;
 
@@ -614,6 +620,8 @@ function bindEvents() {
   elements.accentToggle.addEventListener("click", () => {
     setAccentFirstBeat(!state.accentFirstBeat);
   });
+  elements.decreaseAccentInterval.addEventListener("click", () => adjustAccentInterval(-1));
+  elements.increaseAccentInterval.addEventListener("click", () => adjustAccentInterval(1));
 
   elements.tempoRange.addEventListener("input", (event) => setBpm(event.target.value));
   elements.bpmInput.addEventListener("change", (event) => setBpm(event.target.value));
@@ -625,18 +633,12 @@ function bindEvents() {
   elements.decreaseTempo.addEventListener("click", () => adjustBpm(-1));
   elements.increaseTempo.addEventListener("click", () => adjustBpm(1));
 
-  elements.meterOptions.addEventListener("click", (event) => {
-    const button = event.target.closest("[data-meter-id]");
-    if (button) selectMeter(button.dataset.meterId);
-  });
-
   elements.subdivisionOptions.addEventListener("click", (event) => {
     const button = event.target.closest("[data-subdivision]");
     if (button) selectSubdivision(button.dataset.subdivision);
   });
 
   elements.volumeRange.addEventListener("input", (event) => setVolume(event.target.value));
-  elements.tapTempo.addEventListener("click", registerTap);
   elements.playButton.addEventListener("click", toggleMetronome);
 
   document.addEventListener("keydown", (event) => {

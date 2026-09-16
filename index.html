@@ -82,6 +82,7 @@
         <section class="tempo-section" aria-labelledby="tempoTitle">
           <div class="section-heading">
             <h2 id="tempoTitle" data-i18n="tempo.title">速度</h2>
+            <span class="sr-only" id="audioState" aria-live="polite">等待开始</span>
           </div>
 
           <div class="bpm-control">
@@ -107,7 +108,8 @@
                   data-i18n-aria-label="tempo.bpm"
                   aria-label="每分钟节拍数"
                 />
-                <span>BPM</span>
+                <span class="bpm-unit">BPM</span>
+                <span class="beat-lamp" id="beatLamp" aria-hidden="true"></span>
               </span>
               <span class="tempo-mark-readout">
                 <span class="tempo-mark" id="tempoMark">小快板</span>
@@ -155,33 +157,6 @@
               aria-label="选择速度标记"
             ></div>
           </div>
-
-          <div
-            class="preset-row"
-            id="presetRow"
-            role="group"
-            data-i18n-aria-label="tempo.presets"
-            aria-label="速度预设"
-          ></div>
-        </section>
-
-        <section
-          class="beat-display"
-          id="beatDisplay"
-          data-i18n-aria-label="beat.current"
-          aria-label="当前节拍"
-        >
-          <div class="beat-status">
-            <span class="status-dot" aria-hidden="true"></span>
-            <span class="sr-only" id="audioState" aria-live="polite">等待开始</span>
-          </div>
-
-          <div class="beat-readout">
-            <strong id="beatNumber">1</strong>
-            <span>/ <span id="beatTotal">4</span></span>
-          </div>
-
-          <div class="beat-dots" id="beatDots" aria-hidden="true"></div>
         </section>
 
         <section
@@ -189,17 +164,6 @@
           data-i18n-aria-label="settings.title"
           aria-label="节拍设置"
         >
-          <div class="setting-row">
-            <span class="setting-label" data-i18n="meter.label">拍号</span>
-            <div
-              class="meter-options"
-              id="meterOptions"
-              role="radiogroup"
-              data-i18n-aria-label="meter.group"
-              aria-label="选择拍号"
-            ></div>
-          </div>
-
           <div class="setting-row">
             <span class="setting-label" data-i18n="subdivision.label">细分</span>
             <div
@@ -211,24 +175,59 @@
             ></div>
           </div>
 
-          <div class="setting-row">
-            <span class="setting-label" data-i18n="tone.label">音色</span>
-            <span class="tone-value" data-i18n="tone.wood">木质机械音色</span>
-          </div>
-
           <div class="setting-row accent-row">
-            <span class="setting-label" data-i18n="accent.label">强拍</span>
-            <button
-              class="accent-toggle"
-              id="accentToggle"
-              type="button"
-              role="switch"
-              aria-checked="true"
-              data-enabled="true"
-            >
-              <span class="switch-track" aria-hidden="true"><span></span></span>
-              <span data-i18n="accent.toggle">强调第一拍</span>
-            </button>
+            <div class="accent-controls">
+              <div class="accent-control-group">
+                <span class="setting-label" data-i18n="accent.label">强拍</span>
+                <button
+                  class="accent-toggle"
+                  id="accentToggle"
+                  type="button"
+                  role="switch"
+                  aria-checked="true"
+                  data-enabled="true"
+                >
+                  <span class="switch-track" aria-hidden="true"><span></span></span>
+                  <span data-i18n="accent.toggle">强调重音</span>
+                </button>
+              </div>
+
+              <div class="accent-control-group">
+                <span class="setting-label" data-i18n="accent.beats">节拍</span>
+                <div
+                  class="accent-stepper"
+                  role="group"
+                  data-i18n-aria-label="accent.interval"
+                  aria-label="重音间隔"
+                >
+                  <button
+                    class="accent-step-button"
+                    id="decreaseAccentInterval"
+                    type="button"
+                    data-i18n-aria-label="accent.decrease"
+                    aria-label="减少节拍"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"></path></svg>
+                  </button>
+                  <output
+                    class="accent-interval-value"
+                    id="accentIntervalValue"
+                    aria-live="polite"
+                  >4</output>
+                  <button
+                    class="accent-step-button"
+                    id="increaseAccentInterval"
+                    type="button"
+                    data-i18n-aria-label="accent.increase"
+                    aria-label="增加节拍"
+                  >
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M12 5v14M5 12h14"></path>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
       </main>
@@ -239,22 +238,6 @@
         data-i18n-aria-label="playback.group"
         aria-label="播放控制"
       >
-        <button
-          class="tap-button"
-          id="tapTempo"
-          type="button"
-          data-i18n-aria-label="playback.tapAria"
-          aria-label="轻点定速"
-        >
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2"></path>
-            <path d="M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2"></path>
-            <path d="M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8"></path>
-            <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path>
-          </svg>
-          <span data-i18n="playback.tap">点速</span>
-        </button>
-
         <button
           class="play-button"
           id="playButton"
