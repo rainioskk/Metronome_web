@@ -1,6 +1,6 @@
 {
-  "name": "Metronome_web",
-  "short_name": "Metronome_web",
+  "name": "Metronome-web",
+  "short_name": "Metronome-web",
   "description": "A focused online metronome for instrument practice.",
   "start_url": "./",
   "scope": "./",
