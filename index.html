@@ -29,8 +29,8 @@
             id="wakeLockToggle"
             type="button"
             role="switch"
-            aria-checked="true"
-            data-enabled="true"
+            aria-checked="false"
+            data-enabled="false"
             data-runtime="idle"
           >
             <span class="wake-led" aria-hidden="true"></span>
@@ -40,7 +40,7 @@
             </svg>
             <span class="wake-copy">
               <span data-i18n="wake.label">防休眠</span>
-              <small id="wakeStateLabel">待机</small>
+              <small id="wakeStateLabel">关闭</small>
             </span>
             <span class="wake-switch" aria-hidden="true"><span></span></span>
           </button>
@@ -58,6 +58,21 @@
             </svg>
             <svg class="moon-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+          </button>
+
+          <button
+            class="language-trigger"
+            id="languageTrigger"
+            type="button"
+            aria-haspopup="dialog"
+            aria-expanded="false"
+            aria-controls="languageDialog"
+            aria-label="语言"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="M2 12h20M12 2a15.3 15.3 0 0 1 0 20M12 2a15.3 15.3 0 0 0 0 20"></path>
             </svg>
           </button>
 
@@ -184,8 +199,8 @@
                   id="accentToggle"
                   type="button"
                   role="switch"
-                  aria-checked="true"
-                  data-enabled="true"
+                  aria-checked="false"
+                  data-enabled="false"
                 >
                   <span class="switch-track" aria-hidden="true"><span></span></span>
                   <span data-i18n="accent.toggle">强调重音</span>
@@ -266,13 +281,103 @@
             min="0"
             max="100"
             step="1"
-            value="72"
+            value="100"
             data-i18n-aria-label="volume.label"
             aria-label="音量"
           />
-          <output id="volumeOutput" for="volumeRange">72%</output>
+          <output id="volumeOutput" for="volumeRange">100%</output>
         </label>
       </div>
     </div>
+
+    <dialog
+      class="language-dialog"
+      id="languageDialog"
+      aria-labelledby="languageDialogTitle"
+    >
+      <div class="language-dialog-header">
+        <h2 id="languageDialogTitle" data-i18n="language.label">语言</h2>
+        <button
+          class="language-dialog-close"
+          id="closeLanguageDialog"
+          type="button"
+          data-i18n-aria-label="language.close"
+          aria-label="关闭"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18 6 6 18M6 6l12 12"></path>
+          </svg>
+        </button>
+      </div>
+
+      <div
+        class="language-options"
+        id="languageOptions"
+        role="radiogroup"
+        data-i18n-aria-label="language.label"
+        aria-label="语言"
+      >
+        <button
+          class="language-option"
+          type="button"
+          role="radio"
+          data-locale="zh-CN"
+          aria-checked="true"
+        >
+          <span>简体中文</span>
+          <svg class="language-option-check" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m5 12 4 4L19 6"></path>
+          </svg>
+        </button>
+        <button
+          class="language-option"
+          type="button"
+          role="radio"
+          data-locale="zh-TW"
+          aria-checked="false"
+        >
+          <span>繁體中文</span>
+          <svg class="language-option-check" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m5 12 4 4L19 6"></path>
+          </svg>
+        </button>
+        <button
+          class="language-option"
+          type="button"
+          role="radio"
+          data-locale="en"
+          aria-checked="false"
+        >
+          <span>English</span>
+          <svg class="language-option-check" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m5 12 4 4L19 6"></path>
+          </svg>
+        </button>
+        <button
+          class="language-option"
+          type="button"
+          role="radio"
+          data-locale="ja"
+          aria-checked="false"
+        >
+          <span>日本語</span>
+          <svg class="language-option-check" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m5 12 4 4L19 6"></path>
+          </svg>
+        </button>
+        <button
+          class="language-option"
+          type="button"
+          role="radio"
+          data-locale="es"
+          aria-checked="false"
+        >
+          <span>Español</span>
+          <svg class="language-option-check" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m5 12 4 4L19 6"></path>
+          </svg>
+        </button>
+      </div>
+    </dialog>
   </body>
 </html>

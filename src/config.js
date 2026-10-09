@@ -1,10 +1,10 @@
 export const BPM_MIN = 1;
 export const BPM_MAX = 240;
 export const DEFAULT_BPM = 120;
-export const DEFAULT_VOLUME = 72;
-export const DEFAULT_ACCENT_FIRST_BEAT = true;
+export const DEFAULT_VOLUME = 100;
+export const DEFAULT_ACCENT_FIRST_BEAT = false;
 export const DEFAULT_ACCENT_INTERVAL = 4;
-export const DEFAULT_WAKE_LOCK = true;
+export const DEFAULT_WAKE_LOCK = false;
 export const DEFAULT_SUBDIVISION = "quarter";
 
 // The selected interval drives both the accent cycle and the beat lamp.

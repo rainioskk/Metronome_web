@@ -38,7 +38,7 @@ export class MetronomeAudio {
 
       this.context = new AudioContextClass();
       this.masterGain = this.context.createGain();
-      this.masterGain.gain.value = this.getGain(this.config?.volume ?? 0.72);
+      this.masterGain.gain.value = this.getGain(this.config?.volume ?? 1);
       this.masterGain.connect(this.context.destination);
     }
 

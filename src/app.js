@@ -31,6 +31,14 @@ const LEGACY_SUBDIVISIONS = {
   4: "sixteenth",
 };
 
+const LANGUAGE_NAMES = {
+  "zh-CN": "简体中文",
+  "zh-TW": "繁體中文",
+  en: "English",
+  ja: "日本語",
+  es: "Español",
+};
+
 function noteMarkup(x, top = 6.2) {
   return [
     `<ellipse cx="${x}" cy="17.2" rx="2.25" ry="1.75" transform="rotate(-18 ${x} 17.2)" fill="currentColor" stroke="none"></ellipse>`,
@@ -82,6 +90,10 @@ function subdivisionIconMarkup(subdivision) {
 
 const elements = {
   languageSelect: document.querySelector("#languageSelect"),
+  languageTrigger: document.querySelector("#languageTrigger"),
+  languageDialog: document.querySelector("#languageDialog"),
+  languageOptions: document.querySelector("#languageOptions"),
+  closeLanguageDialog: document.querySelector("#closeLanguageDialog"),
   themeToggle: document.querySelector("#themeToggle"),
   wakeLockToggle: document.querySelector("#wakeLockToggle"),
   wakeStateLabel: document.querySelector("#wakeStateLabel"),
@@ -109,6 +121,7 @@ const i18n = createI18n(readStorage(STORAGE_KEYS.language));
 let wakeRuntimeState = "idle";
 let activeTempoMarkingId = null;
 let beatFlashTimer = 0;
+let languageDialogCloseTimer = 0;
 
 const state = {
   bpm: DEFAULT_BPM,
@@ -478,6 +491,71 @@ function setVolume(value, persist = true) {
   }
 }
 
+function updateLanguageUI() {
+  const languageName = LANGUAGE_NAMES[i18n.locale] ?? i18n.locale;
+  const triggerLabel = i18n.t("language.button", { name: languageName });
+
+  elements.languageTrigger.setAttribute("aria-label", triggerLabel);
+  elements.languageTrigger.setAttribute("title", triggerLabel);
+
+  elements.languageOptions.querySelectorAll("[data-locale]").forEach((option) => {
+    option.setAttribute("aria-checked", String(option.dataset.locale === i18n.locale));
+  });
+}
+
+function prefersReducedMotion() {
+  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function finishClosingLanguageDialog() {
+  window.clearTimeout(languageDialogCloseTimer);
+  languageDialogCloseTimer = 0;
+  elements.languageDialog.classList.remove("is-closing");
+
+  if (elements.languageDialog.open && typeof elements.languageDialog.close === "function") {
+    elements.languageDialog.close();
+    return;
+  }
+
+  elements.languageDialog.removeAttribute("open");
+}
+
+function openLanguageDialog() {
+  if (elements.languageDialog.open) return;
+
+  window.clearTimeout(languageDialogCloseTimer);
+  languageDialogCloseTimer = 0;
+  elements.languageDialog.classList.remove("is-closing");
+
+  if (typeof elements.languageDialog.showModal === "function") {
+    elements.languageDialog.showModal();
+  } else {
+    elements.languageDialog.setAttribute("open", "");
+  }
+
+  elements.languageTrigger.setAttribute("aria-expanded", "true");
+  elements.languageOptions
+    .querySelector(`[data-locale="${i18n.locale}"]`)
+    ?.focus({ preventScroll: true });
+}
+
+function closeLanguageDialog() {
+  elements.languageTrigger.setAttribute("aria-expanded", "false");
+
+  if (!elements.languageDialog.open || elements.languageDialog.classList.contains("is-closing")) {
+    return;
+  }
+
+  if (prefersReducedMotion()) {
+    finishClosingLanguageDialog();
+    return;
+  }
+
+  elements.languageDialog.classList.add("is-closing");
+  window.clearTimeout(languageDialogCloseTimer);
+  languageDialogCloseTimer = window.setTimeout(finishClosingLanguageDialog, 190);
+}
+
 function setLanguage(locale) {
   i18n.setLocale(locale);
   writeStorage(STORAGE_KEYS.language, i18n.locale);
@@ -507,6 +585,7 @@ function applyTranslations() {
   );
 
   applyStaticTranslations();
+  updateLanguageUI();
   renderTempoMarkings();
   renderSubdivisions();
   updateAccentUI();
@@ -612,6 +691,29 @@ function bindEvents() {
     setLanguage(event.target.value);
   });
 
+  elements.languageTrigger.addEventListener("click", openLanguageDialog);
+  elements.closeLanguageDialog.addEventListener("click", closeLanguageDialog);
+  elements.languageOptions.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-locale]");
+    if (!option) return;
+
+    setLanguage(option.dataset.locale);
+    closeLanguageDialog();
+  });
+  elements.languageDialog.addEventListener("click", (event) => {
+    if (event.target === elements.languageDialog) closeLanguageDialog();
+  });
+  elements.languageDialog.addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeLanguageDialog();
+  });
+  elements.languageDialog.addEventListener("close", () => {
+    window.clearTimeout(languageDialogCloseTimer);
+    languageDialogCloseTimer = 0;
+    elements.languageDialog.classList.remove("is-closing");
+    elements.languageTrigger.setAttribute("aria-expanded", "false");
+  });
+
   elements.themeToggle.addEventListener("click", () => {
     applyTheme(state.theme === "dark" ? "light" : "dark");
   });
@@ -645,6 +747,8 @@ function bindEvents() {
     const isEditing =
       event.target instanceof HTMLInputElement ||
       event.target instanceof HTMLSelectElement ||
+      event.target instanceof HTMLTextAreaElement ||
+      event.target instanceof HTMLButtonElement ||
       event.target.isContentEditable;
 
     if (event.code === "Space" && !isEditing) {
