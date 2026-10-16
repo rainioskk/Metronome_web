@@ -16,6 +16,8 @@ import {
 import { MetronomeAudio } from "./audio-engine.js";
 import { createI18n } from "./i18n.js";
 import { ScreenWakeLock } from "./screen-wake-lock.js";
+import { DEFAULT_TRAINER, MAX_PRESETS, TapTempo, TempoTrainer, normalizeTrainer, readPresets } from "./practice.js";
+import { bindRadioGroup, updateRadioGroup } from "./radio-group.js";
 import {
   readBoolean,
   readNumber,
@@ -115,6 +117,20 @@ const elements = {
   playText: document.querySelector("#playText"),
   volumeRange: document.querySelector("#volumeRange"),
   volumeOutput: document.querySelector("#volumeOutput"),
+  tapTempo: document.querySelector("#tapTempo"),
+  tapStatus: document.querySelector("#tapStatus"),
+  trainerEnabled: document.querySelector("#trainerEnabled"),
+  trainerBars: document.querySelector("#trainerBars"),
+  trainerStep: document.querySelector("#trainerStep"),
+  trainerTarget: document.querySelector("#trainerTarget"),
+  trainerStatus: document.querySelector("#trainerStatus"),
+  presetName: document.querySelector("#presetName"),
+  presetSelect: document.querySelector("#presetSelect"),
+  savePreset: document.querySelector("#savePreset"),
+  loadPreset: document.querySelector("#loadPreset"),
+  deletePreset: document.querySelector("#deletePreset"),
+  practiceStatus: document.querySelector("#practiceStatus"),
+  offlineStatus: document.querySelector("#offlineStatus"),
 };
 
 const i18n = createI18n(readStorage(STORAGE_KEYS.language));
@@ -122,6 +138,12 @@ let wakeRuntimeState = "idle";
 let activeTempoMarkingId = null;
 let beatFlashTimer = 0;
 let languageDialogCloseTimer = 0;
+let playbackRequest = 0;
+let offlineRuntimeState = "preparing";
+let tapResetTimer = 0;
+let presets = [];
+const tapTempo = new TapTempo();
+const trainer = new TempoTrainer();
 
 const state = {
   bpm: DEFAULT_BPM,
@@ -132,6 +154,7 @@ const state = {
   volume: DEFAULT_VOLUME / 100,
   isPlaying: false,
   theme: "light",
+  trainer: { ...DEFAULT_TRAINER },
 };
 
 function clamp(value, min, max) {
@@ -271,16 +294,17 @@ function setBpm(rawValue, options = {}) {
   const numericValue = Number.parseInt(rawValue, 10);
   if (!Number.isFinite(numericValue)) return;
 
-  state.bpm = clamp(numericValue, BPM_MIN, BPM_MAX);
+  const nextBpm = clamp(numericValue, BPM_MIN, BPM_MAX);
+  const changed = nextBpm !== state.bpm;
+  state.bpm = nextBpm;
   updateTempoUI();
 
   if (options.persist !== false) {
     writeStorage(STORAGE_KEYS.bpm, state.bpm);
   }
 
-  if (state.isPlaying) {
-    audio.update(audioSnapshot(), { reschedule: false });
-  }
+  if (state.isPlaying && changed) audio.update(audioSnapshot());
+  updateTrainerUI();
 }
 
 function adjustBpm(delta) {
@@ -309,6 +333,8 @@ function updatePlaybackUI() {
 }
 
 function renderTempoMarkings() {
+  const focused = elements.tempoMarkingOptions.contains(document.activeElement)
+    ? document.activeElement.dataset.tempoMarking : null;
   elements.tempoMarkingOptions.replaceChildren();
 
   TEMPO_MARKINGS.forEach((marking) => {
@@ -348,6 +374,7 @@ function renderTempoMarkings() {
     button.append(name, range);
     button.addEventListener("click", () => selectTempoMarking(marking.id));
     elements.tempoMarkingOptions.append(button);
+    if (focused === marking.id) button.focus({ preventScroll: true });
   });
 }
 
@@ -356,12 +383,7 @@ function updateTempoMarkingSelection(marking) {
     `[data-tempo-marking="${marking.id}"]`
   );
 
-  elements.tempoMarkingOptions
-    .querySelectorAll("[data-tempo-marking]")
-    .forEach((button) => {
-      const isActive = button === activeButton;
-      button.setAttribute("aria-checked", String(isActive));
-    });
+  updateRadioGroup(elements.tempoMarkingOptions, button => button === activeButton);
 
   if (activeButton && activeTempoMarkingId !== marking.id) {
     activeTempoMarkingId = marking.id;
@@ -383,6 +405,8 @@ function selectTempoMarking(markingId) {
 }
 
 function renderSubdivisions() {
+  const focused = elements.subdivisionOptions.contains(document.activeElement)
+    ? document.activeElement.dataset.subdivision : null;
   elements.subdivisionOptions.replaceChildren();
 
   SUBDIVISIONS.forEach((subdivision) => {
@@ -404,7 +428,13 @@ function renderSubdivisions() {
     label.textContent = name;
     button.append(icon, label);
     elements.subdivisionOptions.append(button);
+    if (focused === subdivision.id) button.focus({ preventScroll: true });
   });
+  updateSubdivisionSelection();
+}
+
+function updateSubdivisionSelection() {
+  updateRadioGroup(elements.subdivisionOptions, button => button.dataset.subdivision === state.subdivisionId);
 }
 
 function selectSubdivision(subdivisionId) {
@@ -416,7 +446,7 @@ function selectSubdivision(subdivisionId) {
   }
 
   state.subdivisionId = subdivisionId;
-  renderSubdivisions();
+  updateSubdivisionSelection();
   writeStorage(STORAGE_KEYS.subdivision, subdivisionId);
 
   if (state.isPlaying) {
@@ -457,6 +487,7 @@ function setAccentInterval(rawValue) {
   }
 
   state.accentInterval = interval;
+  trainer.reset();
   writeStorage(STORAGE_KEYS.accentInterval, interval);
   updateAccentUI();
 
@@ -498,9 +529,7 @@ function updateLanguageUI() {
   elements.languageTrigger.setAttribute("aria-label", triggerLabel);
   elements.languageTrigger.setAttribute("title", triggerLabel);
 
-  elements.languageOptions.querySelectorAll("[data-locale]").forEach((option) => {
-    option.setAttribute("aria-checked", String(option.dataset.locale === i18n.locale));
-  });
+  updateRadioGroup(elements.languageOptions, option => option.dataset.locale === i18n.locale);
 }
 
 function prefersReducedMotion() {
@@ -593,11 +622,23 @@ function applyTranslations() {
   updateThemeUI();
   updateWakeLockUI();
   updatePlaybackUI();
+  updateTrainerUI();
+  renderPresets();
+  elements.tapStatus.textContent = i18n.t("tap.hint");
+  elements.practiceStatus.textContent = "";
+  setOfflineState(offlineRuntimeState);
+}
+
+export function setOfflineState(nextState) {
+  offlineRuntimeState = nextState;
+  elements.offlineStatus.textContent = i18n.t(`offline.${nextState}`);
 }
 
 async function startMetronome() {
   if (state.isPlaying) return;
 
+  const request = ++playbackRequest;
+  trainer.reset();
   state.isPlaying = true;
   updatePlaybackUI();
 
@@ -608,6 +649,8 @@ async function startMetronome() {
   try {
     await audio.start(audioSnapshot());
   } catch {
+    if (request !== playbackRequest) return;
+    audio.stop();
     state.isPlaying = false;
     updatePlaybackUI();
     elements.audioState.textContent = i18n.t("audio.unavailable");
@@ -616,6 +659,8 @@ async function startMetronome() {
 }
 
 function stopMetronome() {
+  playbackRequest += 1;
+  trainer.reset();
   state.isPlaying = false;
   audio.stop();
   updatePlaybackUI();
@@ -648,7 +693,9 @@ function clearCurrentBeat() {
   elements.beatLamp.classList.remove("is-beating", "is-accent");
 }
 
-function triggerVisualBeat(_beatIndex, accent) {
+function triggerVisualBeat(beatIndex, accent, time) {
+  const nextBpm = trainer.beat(beatIndex, state.bpm, time, state.trainer);
+  if (nextBpm !== state.bpm) setBpm(nextBpm);
   const lamp = elements.beatLamp;
 
   window.clearTimeout(beatFlashTimer);
@@ -657,6 +704,110 @@ function triggerVisualBeat(_beatIndex, accent) {
   void lamp.offsetWidth;
   lamp.classList.add("is-beating");
   beatFlashTimer = window.setTimeout(() => lamp.classList.remove("is-beating"), 130);
+}
+
+function updateTrainerUI() {
+  elements.trainerEnabled.checked = state.trainer.enabled;
+  for (const [element, value] of [[elements.trainerBars, state.trainer.everyBars],
+    [elements.trainerStep, state.trainer.step], [elements.trainerTarget, state.trainer.target]]) {
+    if (document.activeElement !== element) element.value = String(value);
+  }
+  elements.trainerStatus.textContent = !state.trainer.enabled ? ""
+    : i18n.t(state.bpm >= state.trainer.target ? "trainer.reached" : "trainer.plan", {
+      bars: state.trainer.everyBars, step: state.trainer.step, target: state.trainer.target,
+    });
+}
+
+function saveTrainer() {
+  const next = normalizeTrainer({
+    enabled: elements.trainerEnabled.checked,
+    everyBars: Number.parseInt(elements.trainerBars.value, 10),
+    step: Number.parseInt(elements.trainerStep.value, 10),
+    target: Number.parseInt(elements.trainerTarget.value, 10),
+  });
+  if (JSON.stringify(next) !== JSON.stringify(state.trainer)) trainer.reset();
+  state.trainer = next;
+  writeStorage(STORAGE_KEYS.trainer, JSON.stringify(state.trainer));
+  updateTrainerUI();
+}
+
+function updatePresetActions() {
+  const selected = presets.some(preset => preset.id === elements.presetSelect.value);
+  elements.loadPreset.disabled = !selected;
+  elements.deletePreset.disabled = !selected;
+}
+
+function renderPresets(selectedId = elements.presetSelect.value) {
+  elements.presetSelect.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = i18n.t(presets.length ? "preset.select" : "preset.empty");
+  elements.presetSelect.append(placeholder);
+  presets.forEach(preset => {
+    const option = document.createElement("option");
+    option.value = preset.id;
+    option.textContent = `${preset.name} · ${preset.bpm} BPM`;
+    elements.presetSelect.append(option);
+  });
+  elements.presetSelect.value = presets.some(preset => preset.id === selectedId) ? selectedId : "";
+  updatePresetActions();
+}
+
+function savePreset() {
+  if (presets.length >= MAX_PRESETS) {
+    elements.practiceStatus.textContent = i18n.t("preset.limit");
+    return;
+  }
+  const name = elements.presetName.value.trim() || i18n.t("preset.defaultName", { count: presets.length + 1 });
+  const preset = {
+    version: 1, id: globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`, name,
+    bpm: state.bpm, subdivisionId: state.subdivisionId, accentFirstBeat: state.accentFirstBeat,
+    accentInterval: state.accentInterval, volume: state.volume, trainer: { ...state.trainer },
+  };
+  const next = [...presets, preset];
+  if (!writeStorage(STORAGE_KEYS.presets, JSON.stringify(next))) {
+    elements.practiceStatus.textContent = i18n.t("preset.storageError");
+    return;
+  }
+  presets = next;
+  renderPresets(preset.id);
+  elements.presetName.value = "";
+  elements.practiceStatus.textContent = i18n.t("preset.saved", { name });
+}
+
+function loadPreset() {
+  const preset = presets.find(item => item.id === elements.presetSelect.value);
+  if (!preset) return;
+  state.bpm = preset.bpm;
+  state.subdivisionId = preset.subdivisionId;
+  state.accentFirstBeat = preset.accentFirstBeat;
+  state.accentInterval = preset.accentInterval;
+  state.volume = preset.volume;
+  state.trainer = { ...preset.trainer };
+  trainer.reset();
+  writeStorage(STORAGE_KEYS.bpm, state.bpm);
+  writeStorage(STORAGE_KEYS.subdivision, state.subdivisionId);
+  writeStorage(STORAGE_KEYS.accentFirstBeat, state.accentFirstBeat);
+  writeStorage(STORAGE_KEYS.accentInterval, state.accentInterval);
+  writeStorage(STORAGE_KEYS.trainer, JSON.stringify(state.trainer));
+  setVolume(state.volume * 100);
+  updateTempoUI();
+  updateSubdivisionSelection();
+  updateAccentUI();
+  updateTrainerUI();
+  if (state.isPlaying) audio.update(audioSnapshot());
+  elements.practiceStatus.textContent = i18n.t("preset.loaded", { name: preset.name });
+}
+
+function deletePreset() {
+  const next = presets.filter(item => item.id !== elements.presetSelect.value);
+  if (!writeStorage(STORAGE_KEYS.presets, JSON.stringify(next))) {
+    elements.practiceStatus.textContent = i18n.t("preset.storageError");
+    return;
+  }
+  presets = next;
+  renderPresets();
+  elements.practiceStatus.textContent = i18n.t("preset.deleted");
 }
 
 function restoreSettings() {
@@ -682,11 +833,38 @@ function restoreSettings() {
   state.wakeLockEnabled = readBoolean(STORAGE_KEYS.wakeLock, DEFAULT_WAKE_LOCK);
   state.volume = clamp(readNumber(STORAGE_KEYS.volume, DEFAULT_VOLUME), 0, 100) / 100;
 
+  try { state.trainer = normalizeTrainer(JSON.parse(readStorage(STORAGE_KEYS.trainer))); }
+  catch { state.trainer = { ...DEFAULT_TRAINER }; }
+  presets = readPresets(readStorage(STORAGE_KEYS.presets));
+
   const savedLanguage = readStorage(STORAGE_KEYS.language);
   if (savedLanguage) i18n.setLocale(savedLanguage);
 }
 
 function bindEvents() {
+  bindRadioGroup(elements.subdivisionOptions, button => selectSubdivision(button.dataset.subdivision));
+  bindRadioGroup(elements.tempoMarkingOptions, button => selectTempoMarking(button.dataset.tempoMarking));
+  bindRadioGroup(elements.languageOptions, button => setLanguage(button.dataset.locale));
+  elements.tapTempo.addEventListener("click", () => {
+    const bpm = tapTempo.tap(performance.now());
+    if (bpm !== null) {
+      setBpm(bpm);
+      elements.tapStatus.textContent = i18n.t("tap.result", { bpm });
+    } else elements.tapStatus.textContent = i18n.t("tap.more");
+    window.clearTimeout(tapResetTimer);
+    tapResetTimer = window.setTimeout(() => {
+      elements.tapStatus.textContent = i18n.t("tap.hint");
+    }, 3000);
+  });
+  [elements.trainerEnabled, elements.trainerBars, elements.trainerStep, elements.trainerTarget]
+    .forEach(element => element.addEventListener("change", saveTrainer));
+  [elements.trainerBars, elements.trainerStep, elements.trainerTarget]
+    .forEach(element => element.addEventListener("blur", saveTrainer));
+  elements.savePreset.addEventListener("click", savePreset);
+  elements.loadPreset.addEventListener("click", loadPreset);
+  elements.deletePreset.addEventListener("click", deletePreset);
+  elements.presetSelect.addEventListener("change", updatePresetActions);
+
   elements.languageSelect.addEventListener("change", (event) => {
     setLanguage(event.target.value);
   });
@@ -728,6 +906,7 @@ function bindEvents() {
   elements.tempoRange.addEventListener("input", (event) => setBpm(event.target.value));
   elements.bpmInput.addEventListener("change", (event) => setBpm(event.target.value));
   elements.bpmInput.addEventListener("blur", () => {
+    setBpm(elements.bpmInput.value);
     elements.bpmInput.value = String(state.bpm);
   });
   elements.bpmInput.addEventListener("focus", (event) => event.target.select());
@@ -744,6 +923,7 @@ function bindEvents() {
   elements.playButton.addEventListener("click", toggleMetronome);
 
   document.addEventListener("keydown", (event) => {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || elements.languageDialog.open) return;
     const isEditing =
       event.target instanceof HTMLInputElement ||
       event.target instanceof HTMLSelectElement ||
@@ -753,7 +933,7 @@ function bindEvents() {
 
     if (event.code === "Space" && !isEditing) {
       event.preventDefault();
-      toggleMetronome();
+      if (!event.repeat) toggleMetronome();
       return;
     }
 
@@ -774,7 +954,7 @@ function bindEvents() {
 
     wakeLock.syncVisibility(state.isPlaying && state.wakeLockEnabled).catch(() => {});
 
-    if (state.isPlaying && audio.contextState === "suspended") {
+    if (state.isPlaying && audio.contextState !== "running") {
       audio.resume().catch(() => {});
     }
   });

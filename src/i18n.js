@@ -1,3 +1,5 @@
+import { practiceMessages } from "./practice-i18n.js";
+
 export const SUPPORTED_LOCALES = ["zh-CN", "zh-TW", "en", "ja", "es"];
 
 const messages = {
@@ -422,6 +424,8 @@ const messages = {
     "audio.documentTitle": "{bpm} BPM, {mark}",
   },
 };
+
+for (const locale of SUPPORTED_LOCALES) Object.assign(messages[locale], practiceMessages[locale]);
 
 function resolveMessage(locale, key) {
   return messages[locale]?.[key] ?? messages.en[key] ?? key;

@@ -9,8 +9,10 @@ export function readStorage(key) {
 export function writeStorage(key, value) {
   try {
     window.localStorage.setItem(key, String(value));
+    return true;
   } catch {
     // Private browsing and restricted file contexts can disable storage.
+    return false;
   }
 }
 

@@ -163,6 +163,11 @@
             <span>240</span>
           </div>
 
+          <div class="tap-row">
+            <button id="tapTempo" type="button" data-i18n="tap.button">点击测速</button>
+            <span id="tapStatus" role="status" data-i18n="tap.hint">跟随节奏连续点击</span>
+          </div>
+
           <div class="tempo-marking-section">
             <span class="tempo-markings-label" data-i18n="tempo.markings.group">速度标记</span>
             <div
@@ -246,6 +251,46 @@
           </div>
         </section>
       </main>
+
+      <details class="practice-panel">
+        <summary data-i18n="practice.title">练习工具</summary>
+        <div class="practice-grid">
+          <section aria-labelledby="trainerTitle">
+            <h2 id="trainerTitle" data-i18n="trainer.title">自动提速</h2>
+            <label class="trainer-toggle"><input id="trainerEnabled" type="checkbox" />
+              <span data-i18n="trainer.enable">启用自动提速</span>
+            </label>
+            <div class="trainer-fields">
+              <label><span data-i18n="trainer.everyBars">间隔小节数</span>
+                <input id="trainerBars" type="number" min="1" max="32" value="4" inputmode="numeric" />
+              </label>
+              <label><span data-i18n="trainer.step">每次增加 BPM</span>
+                <input id="trainerStep" type="number" min="1" max="40" value="5" inputmode="numeric" />
+              </label>
+              <label><span data-i18n="trainer.target">目标 BPM</span>
+                <input id="trainerTarget" type="number" min="1" max="240" value="160" inputmode="numeric" />
+              </label>
+            </div>
+            <p class="practice-hint" data-i18n="trainer.hint">每小节拍数由“节拍”决定；达到目标后保持速度，暂停后重新计数。</p>
+            <p id="trainerStatus" class="practice-hint" role="status"></p>
+          </section>
+          <section aria-labelledby="presetsTitle">
+            <h2 id="presetsTitle" data-i18n="preset.title">练习预设</h2>
+            <div class="preset-row">
+              <input id="presetName" type="text" maxlength="40" data-i18n-aria-label="preset.name" aria-label="预设名称" />
+              <button id="savePreset" type="button" data-i18n="preset.save">保存当前设置</button>
+            </div>
+            <div class="preset-row preset-actions">
+              <select id="presetSelect" data-i18n-aria-label="preset.select" aria-label="选择预设"></select>
+              <button id="loadPreset" type="button" disabled data-i18n="preset.load">载入</button>
+              <button id="deletePreset" type="button" disabled data-i18n="preset.delete">删除</button>
+            </div>
+            <p class="practice-hint" data-i18n="preset.hint">最多保存 10 组速度、细分、重音、音量和提速设置，仅存于本机。</p>
+            <p id="practiceStatus" class="practice-hint" role="status"></p>
+          </section>
+        </div>
+        <p id="offlineStatus" class="practice-hint offline-status" role="status"></p>
+      </details>
 
       <div
         class="transport"

@@ -26,6 +26,7 @@ export class MetronomeAudio {
     this.schedulerTimer = null;
     this.visualTimers = new Set();
     this.scheduledVoices = new Set();
+    this.beatHistory = [];
   }
 
   async ensureContext() {
@@ -56,16 +57,20 @@ export class MetronomeAudio {
   }
 
   async start(config) {
-    await this.init();
-
+    this.stop();
+    const generation = this.generation;
     this.config = { ...config };
+    await this.init();
+    if (generation !== this.generation) return false;
+
     this.isPlaying = true;
-    this.generation += 1;
     this.beatIndex = 0;
     this.subIndex = 0;
+    this.beatHistory = [];
     this.nextNoteTime = this.context.currentTime + 0.06;
-    this.setVolume(config.volume, true);
-    this.scheduler(this.generation);
+    this.setVolume(this.config.volume, true);
+    this.scheduler(generation);
+    return true;
   }
 
   stop() {
@@ -89,15 +94,17 @@ export class MetronomeAudio {
       this.setVolume(config.volume);
     }
 
-    if (this.isPlaying && reschedule) {
+    if (this.isPlaying && (reschedule || previousConfig?.bpm !== config.bpm)) {
       this.resync(previousConfig);
     }
   }
 
   setVolume(volume, immediate = false) {
+    const normalizedVolume = clamp(volume, 0, 1);
+    if (this.config) this.config.volume = normalizedVolume;
     if (!this.masterGain || !this.context) return;
 
-    const gain = this.getGain(clamp(volume, 0, 1));
+    const gain = this.getGain(normalizedVolume);
     if (immediate) {
       this.masterGain.gain.setValueAtTime(gain, this.context.currentTime);
     } else {
@@ -144,11 +151,13 @@ export class MetronomeAudio {
     oscillator.start(startTime);
     oscillator.stop(endTime + 0.001);
 
-    const voice = { oscillators: [oscillator], envelope, endTime };
+    const voice = { oscillators: [oscillator], envelope, startTime, endTime };
     this.scheduledVoices.add(voice);
-    oscillator.addEventListener("ended", () => this.scheduledVoices.delete(voice), {
-      once: true,
-    });
+    oscillator.addEventListener("ended", () => {
+      this.scheduledVoices.delete(voice);
+      oscillator.disconnect();
+      envelope.disconnect();
+    }, { once: true });
   }
 
   scheduleVisualBeat(beatIndex, accent, time, generation) {
@@ -156,7 +165,8 @@ export class MetronomeAudio {
     const timer = window.setTimeout(() => {
       this.visualTimers.delete(timer);
       if (!this.isPlaying || generation !== this.generation) return;
-      this.onBeat(beatIndex, accent);
+      if (this.context.currentTime - time > SCHEDULE_AHEAD_SECONDS) return;
+      this.onBeat(beatIndex, accent, time);
     }, delay);
 
     this.visualTimers.add(timer);
@@ -172,6 +182,24 @@ export class MetronomeAudio {
     }
 
     const beatDuration = 60 / bpm;
+    const now = this.context.currentTime;
+    // Timers can be throttled in background tabs. Seek on the audio timeline
+    // instead of playing every missed click at the current instant.
+    if (this.nextNoteTime < now - 0.03) {
+      const start = this.nextNoteTime - subdivisionOffsets[this.subIndex] * beatDuration;
+      const skippedBeats = Math.floor((now - start) / beatDuration);
+      const beatStart = start + skippedBeats * beatDuration;
+      this.beatIndex = (this.beatIndex + skippedBeats) % beats;
+      this.beatHistory = [{ time: beatStart, index: this.beatIndex, bpm }];
+      this.subIndex = subdivisionOffsets.findIndex(offset => beatStart + offset * beatDuration >= now);
+      if (this.subIndex === -1) {
+        this.subIndex = 0;
+        this.beatIndex = (this.beatIndex + 1) % beats;
+        this.nextNoteTime = beatStart + beatDuration;
+      } else {
+        this.nextNoteTime = beatStart + subdivisionOffsets[this.subIndex] * beatDuration;
+      }
+    }
 
     while (this.nextNoteTime < this.context.currentTime + SCHEDULE_AHEAD_SECONDS) {
       const offset = subdivisionOffsets[this.subIndex] ?? 0;
@@ -181,6 +209,11 @@ export class MetronomeAudio {
       this.playClick(accent, this.nextNoteTime);
 
       if (isMainBeat) {
+        this.beatHistory.push({ time: this.nextNoteTime, index: this.beatIndex, bpm });
+        // Retain the last elapsed beat plus any beats in the lookahead window.
+        while (this.beatHistory.length > 1 && this.beatHistory[1].time <= now) {
+          this.beatHistory.shift();
+        }
         this.scheduleVisualBeat(this.beatIndex, accent, this.nextNoteTime, generation);
       }
 
@@ -204,13 +237,19 @@ export class MetronomeAudio {
     this.visualTimers.clear();
   }
 
-  stopScheduledVoices() {
+  stopScheduledVoices({ futureOnly = false } = {}) {
     if (!this.context) return;
 
     const now = this.context.currentTime;
 
-    this.scheduledVoices.forEach(({ oscillators, envelope, endTime }) => {
-      if (endTime <= now) return;
+    this.scheduledVoices.forEach((voice) => {
+      const { oscillators, envelope, startTime, endTime } = voice;
+      if (endTime <= now || (futureOnly && startTime <= now)) return;
+      if (startTime > now) {
+        oscillators.forEach(oscillator => oscillator.stop(now));
+        this.scheduledVoices.delete(voice);
+        return;
+      }
 
       if (envelope) {
         try {
@@ -233,52 +272,45 @@ export class MetronomeAudio {
         }
       });
     });
-    this.scheduledVoices.clear();
+    if (!futureOnly) this.scheduledVoices.clear();
   }
 
-  resync(previousConfig) {
+  resync(previousConfig = this.config) {
     if (!this.isPlaying || !this.context) return;
 
     this.generation += 1;
     this.clearVisualTimers();
+    window.clearTimeout(this.schedulerTimer);
+    this.schedulerTimer = null;
+    this.stopScheduledVoices({ futureOnly: true });
 
-    if (this.schedulerTimer) {
-      window.clearTimeout(this.schedulerTimer);
-      this.schedulerTimer = null;
-    }
-
-    this.stopScheduledVoices();
-
-    const subdivisionChanged =
-      Boolean(previousConfig) &&
-      previousConfig.subdivisionOffsets?.join(",") !==
-        this.config?.subdivisionOffsets?.join(",");
-    const beatCountChanged = !previousConfig || previousConfig.beats !== this.config?.beats;
-
-    if (subdivisionChanged) {
-      this.nextNoteTime = this.nextMainBeatTime(previousConfig);
-      this.subIndex = 0;
+    const now = this.context.currentTime;
+    const elapsedBeat = [...this.beatHistory].reverse().find(beat => beat.time <= now);
+    const duration = 60 / this.config.bpm;
+    if (elapsedBeat) {
+      const elapsed = Math.max(0, (now - elapsedBeat.time) / (60 / elapsedBeat.bpm));
+      const wholeBeats = Math.floor(elapsed);
+      const progress = elapsed - wholeBeats;
+      const index = previousConfig.beats === this.config.beats
+        ? (elapsedBeat.index + wholeBeats) % this.config.beats : 0;
+      const start = now - progress * duration;
+      this.beatHistory = [{ time: start, index, bpm: this.config.bpm }];
+      this.subIndex = this.config.subdivisionOffsets.findIndex(offset => offset > progress + 1e-8);
+      this.beatIndex = index;
+      if (this.subIndex === -1) {
+        this.subIndex = 0;
+        this.beatIndex = (index + 1) % this.config.beats;
+        this.nextNoteTime = start + duration;
+      } else {
+        this.nextNoteTime = start + this.config.subdivisionOffsets[this.subIndex] * duration;
+      }
     } else {
-      this.nextNoteTime = this.context.currentTime + 0.06;
-      this.subIndex = 0;
-    }
-
-    if (beatCountChanged) {
+      // A change during startup must keep the first beat, rather than skip it.
+      this.nextNoteTime = Math.max(now + 0.006, this.beatHistory[0]?.time ?? now + 0.06);
       this.beatIndex = 0;
+      this.subIndex = 0;
+      this.beatHistory = [];
     }
-
     this.scheduler(this.generation);
-  }
-
-  nextMainBeatTime(previousConfig) {
-    const offsets = previousConfig?.subdivisionOffsets;
-    const beatDuration = previousConfig?.bpm ? 60 / previousConfig.bpm : 0;
-
-    if (!offsets?.length || this.subIndex === 0 || beatDuration <= 0) {
-      return this.nextNoteTime;
-    }
-
-    const currentOffset = offsets[this.subIndex] ?? offsets[offsets.length - 1] ?? 0;
-    return this.nextNoteTime + (1 - currentOffset) * beatDuration;
   }
 }

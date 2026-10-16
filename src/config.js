@@ -47,6 +47,8 @@ export const STORAGE_KEYS = {
   accentFirstBeat: "metronome-accent-first-beat",
   accentInterval: "metronome-accent-interval",
   wakeLock: "metronome-wake-lock",
+  trainer: "metronome-trainer",
+  presets: "metronome-presets-v1",
 };
 
 export function getTempoMarking(bpm) {

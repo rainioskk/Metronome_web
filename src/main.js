@@ -1,15 +1,23 @@
 import "./styles.css";
-import { createMetronomeApp } from "./app.js";
+import { createMetronomeApp, setOfflineState } from "./app.js";
+import { inject } from "@vercel/analytics";
 
-import { inject } from '@vercel/analytics';
-// 初始化 Vercel Analytics
 inject();
-
 createMetronomeApp();
 
-if (import.meta.env.PROD && "serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    const serviceWorkerUrl = new URL("sw.js", document.baseURI);
-    navigator.serviceWorker.register(serviceWorkerUrl, { scope: "./" }).catch(() => {});
+if (!import.meta.env.PROD) {
+  setOfflineState("development");
+} else if (!("serviceWorker" in navigator)) {
+  setOfflineState("unsupported");
+} else {
+  window.addEventListener("load", async () => {
+    try {
+      const serviceWorkerUrl = new URL("sw.js", document.baseURI);
+      await navigator.serviceWorker.register(serviceWorkerUrl, { scope: "./", updateViaCache: "none" });
+      await navigator.serviceWorker.ready;
+      setOfflineState("ready");
+    } catch {
+      setOfflineState("error");
+    }
   });
 }

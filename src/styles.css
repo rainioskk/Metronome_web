@@ -1536,3 +1536,92 @@ html[data-theme="dark"] .play-button.is-playing {
     transition-duration: 0.01ms !important;
   }
 }
+
+.tap-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.tap-row button,
+.practice-panel button {
+  min-height: 44px;
+  padding: 9px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.tap-row button:active,
+.practice-panel button:active:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+.tap-row span,
+.practice-hint {
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.practice-panel {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.practice-panel summary {
+  padding: 16px 20px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.practice-panel summary:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.practice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+  padding: 0 20px 18px;
+}
+
+.practice-grid section { min-width: 0; }
+.practice-grid h2 { margin: 4px 0 14px; font-size: 14px; }
+.trainer-toggle { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: 13px; }
+.trainer-toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+.trainer-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+.trainer-fields label { display: grid; align-content: start; gap: 6px; color: var(--ink-soft); font-size: 12px; }
+.practice-panel input:not([type="checkbox"]),
+.practice-panel select {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.preset-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 10px; }
+.preset-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
+.practice-panel button:disabled { cursor: default; opacity: 0.45; }
+.practice-hint { margin: 10px 0 0; overflow-wrap: anywhere; }
+.practice-hint:empty { display: none; }
+
+@media (max-width: 700px) {
+  .practice-grid { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-right: 16px; padding-left: 16px; }
+}
+
+.offline-status { margin: 0 20px 18px; }
